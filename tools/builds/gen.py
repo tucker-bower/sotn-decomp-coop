@@ -623,6 +623,11 @@ def add_splat_config(nw: ninja_syntax.Writer, ver: str, file_name: str):
         obj_subdir = f"weapon{hand_id}"
         cpp_flags += f" -DW_{weapon_id} -DWEAPON{hand_id}"
 
+    # Co-op mod (mods/co-op): COOP=1 compiles DRA's co-op hooks. Off by default, so the
+    # matching build is unchanged.
+    if ovl_name == "dra" and os.environ.get("COOP"):
+        cpp_flags += " -DCOOP"
+
     objs = []
     if ovl_name == "main" and platform != "psp":
         objs.append(add_s(nw, ver, f"{asm_path}/header.s", ld_path))
@@ -755,6 +760,8 @@ def add_splat_config(nw: ninja_syntax.Writer, ver: str, file_name: str):
         if ovl_name != "main":
             symbols_lists.append(f"-T {undefined_funcs_auto_path}")
         symbols_lists.append(f"-T {undefined_syms_auto_path}")
+        if ovl_name == "dra" and os.environ.get("COOP"):
+            symbols_lists.append("-T mods/co-op/module/dra_hooks.ld")
     nw.build(
         rule="psx-ld",
         outputs=[output_elf],

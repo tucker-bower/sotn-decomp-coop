@@ -2,6 +2,9 @@
 #include "dra.h"
 #include "dra_bss.h"
 #include "lba.h"
+#ifdef COOP
+#include "../../mods/co-op/module/coop_api.h"
+#endif
 
 #if defined(VERSION_US)
 #define PAD_RESETCOMBO ((PAD_START) | (PAD_SELECT))
@@ -776,7 +779,11 @@ void MainGame(void) {
 #if defined(VERSION_US)
     SetVideoMode(0);
 #endif
+#ifdef COOP
+    CoopBoot(); // installs the co-op module, then InitializePads()
+#else
     InitializePads();
+#endif
     InitCARD(1);
     StartCARD();
     _bu_init();
@@ -883,12 +890,20 @@ loop_5:
         g_GpuUsage.sp16 = 0;
         g_GpuUsage.tile = 0;
         g_GpuUsage.sp = 0;
+#ifdef COOP
+        if (CoopUpdate() != 0) { // returns DebugUpdate()
+#else
         if (DebugUpdate() != 0) {
+#endif
             UpdateGame();
         }
         if (D_8003C0EC[3] == 0 && D_800973EC == 0) {
             RenderTilemap();
+#ifdef COOP
+            CoopRenderEntities(); // RenderEntities(), then the partner
+#else
             RenderEntities();
+#endif
             if (g_GameState == Game_Play && g_DebugEnabled) {
                 if (g_DebugHitboxViewMode != 0) {
                     DrawEntitiesHitbox(g_DebugHitboxViewMode);

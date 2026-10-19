@@ -1,6 +1,6 @@
 # M0 design: test harness, 8MB verification, disc builder skeleton
 
-**Status:** proposal, awaiting Tucker's approval.
+**Status:** approved by Tucker on 2026-10-18 (SwanStation primary; Docker deferred, D14).
 **Budget:** 12% of the month. Spike so far: about half a day.
 
 ## Goal
@@ -61,7 +61,7 @@ Copy the debug module's proven pattern into `mods/co-op/module/`:
 3. A scenario walks Alucard through 3 entrance rooms, with assertions on room ID and position.
 4. The heartbeat module runs in 8MB on SwanStation (harness assertion). It also boots on DuckStation and PCSX-Redux on Tucker's PC (one manual check each, or via computer use).
 5. The lockstep check passes for 10 minutes of scripted play.
-6. Docker builds the heartbeat disc from a user-supplied image.
+6. A script builds the heartbeat disc from a user-supplied image. Docker is deferred to M5 (D14).
 
 ## Risks
 - **The intro takes a long time to script** (name entry, prologue). Mitigation: an RAM-poke shortcut that's allowed in the harness only.
@@ -71,3 +71,19 @@ Copy the debug module's proven pattern into `mods/co-op/module/`:
 ## Decisions for Tucker
 1. Approve this design, including **SwanStation as the primary supported core** and unsupported status for ReARMed and Beetle.
 2. OK for me to install **DuckStation and PCSX-Redux** into your Emulators folder for cross-checks? You'd need to provide your own BIOS dump for those, or I can point them at OpenBIOS.
+
+## Results (2026-10-18)
+| # | Criterion | Result |
+|---|---|---|
+| 1 | Bootstrap + matching build | ✅ Built on a fresh Ubuntu 26.04 WSL2 install: `bootstrap.sh` then `doctor.py`. us is 115/115 matching. A full re-run takes 13 s, so it's idempotent. Not yet tested on a second clean machine. |
+| 2 | Scripted intro → savestates | ✅ `savestates.py`: entrance (after Death) plus Alchemy Lab, Marble Gallery and Outer Wall, in 22 s from a cold boot. |
+| 3 | Walk 3 entrance rooms | ✅ `walk_entrance_rooms`: rooms 20,39 → 14,40 → 11,40, 5/5 checks, 3,777 frames in 7.5 s. |
+| 4 | Heartbeat in 8MB | ✅ SwanStation `heartbeat_8mb` (6/6 checks, +594 beats per 600 frames). ✅ PCSX-Redux, headless and automated (`redux_check.sh`): +600 per 600 vsyncs. ✅ DuckStation (Tucker, manual, 2026-10-18): the co-op disc with 8MB and OpenBIOS boots, and the prologue plays through to beating Dracula with no issues. The module stays dormant there without the Bat Card, so this proves the disc and 8MB mode, not the hook. |
+| 5 | Lockstep, 10 min | ✅ Two pads of random input, 600 RAM and 60 full-state comparisons, a rollback reload every 10 s: 0 desyncs, in 48 s. The negative control (`--inject-desync`) is caught at the next check. |
+| 6 | Disc builder script | ✅ `build_disc.sh` takes 4 s and restores git and the matching build afterwards. Docker is deferred to M5 (D14). |
+
+**Findings that change M1:**
+- **The familiar slot only loads while a familiar is active** (`g_Servant != 0`), and `TT_000` is the Bat. The debug-module pattern can't run co-op code from a new game. The harness turns the Bat Card on to test it. M1 needs a real loader. Other overlays hardcode only 2 DRA addresses, so a hook relinked into DRA is feasible. The M1 design will propose options.
+- **Patched code needs `FlushCache()`.** Without it, PCSX-Redux (dynarec) never runs the hook, and real hardware's instruction cache wouldn't either. SwanStation hid the bug. The upstream debug module has the same latent bug.
+- **Savestates are per disc image.** The library is keyed by disc.
+- Skipping the prologue counts as "Richter took no damage", which gives Alucard +1 to all stats, a real game path. Harness only.

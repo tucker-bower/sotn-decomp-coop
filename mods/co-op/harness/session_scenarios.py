@@ -68,16 +68,16 @@ def no_effect_on_play(run):
     """Criterion 3: with no partner, the co-op disc plays exactly like retail. The two entrance
     savestates come from separate boots (the co-op one also reads COOP.BIN), so their RNG and
     timers differ; game B therefore first takes game A's main RAM, keeping only its own hooked
-    DRA instructions. Then the walk_entrance_rooms route must match frame by frame."""
+    DRA instructions (the 5th, StoreSaveData, only runs at a save room). Then the walk_entrance_rooms route must match frame by frame."""
     a, b = run.s.a, run.s.b
     a.unlink(), b.unlink()
     ram_a, ram_b = bytearray(a.read_bytes(0x80000000, 2 << 20)), b.read_bytes(0x80000000, 2 << 20)
-    # The hooks: `jal`s to CoopBoot and the 3 jump-table entries (module/dra_hooks.ld).
-    targets = {0x801B9870, 0x80280000, 0x80280008, 0x80280010}
+    # The hooks: `jal`s to CoopBoot and the 4 jump-table entries (module/dra_hooks.ld).
+    targets = {0x801B9870, 0x80280000, 0x80280008, 0x80280010, 0x80280018}
     jals = {0x0C000000 | ((t & 0x3FFFFFF) >> 2) for t in targets}
     hooks = [i for i in range(0xA0000, 0x13B6A0, 4) if int.from_bytes(ram_b[i:i + 4], "little") in jals]
-    run.expect(len(hooks) == 4 and all(ram_a[i:i + 4] != ram_b[i:i + 4] for i in hooks),
-               "the co-op DRA has exactly 4 hook calls, where retail calls the originals",
+    run.expect(len(hooks) == 5 and all(ram_a[i:i + 4] != ram_b[i:i + 4] for i in hooks),
+               "the co-op DRA has exactly 5 hook calls (one is the save room's), where retail calls the originals",
                hooks=[hex(0x80000000 + i) for i in hooks])
     for i in hooks:
         ram_a[i:i + 4] = ram_b[i:i + 4]
@@ -160,8 +160,9 @@ def map_marker(run):
     """Criterion 6: on B's map screen, a second cursor marks A's room."""
     a, b = run.s.a, run.s.b
     run.step(300)                          # stage title card
-    run.step(1, p1=("", "select"))         # B opens the map
-    run.step(240, p1=("right", ""))        # A walks right while B looks at the map
+    run.step(240, p1=("right", ""))        # A walks off B's screen
+    run.step(1, p1=("", "select"))         # B opens the map (in a shared room, that freezes A)
+    run.step(40)
     run.expect(b.read("g_GameEngineStep") == 20, "B is on the map screen", step=b.read("g_GameEngineStep"))
     p = a.mailbox("self_presence")
     ex, ey = (p.room_left + (p.x >> 8)) * 4 - 14, (p.room_top + (p.y >> 8)) * 4 - 13
@@ -187,48 +188,53 @@ def stale_link(run):
     run.expect(partner_pixels(a)[0] is None, "A no longer draws B")
 
 
+EXCLUDED_FLAGS = (0x13, 0x14, 0x34)  # module/progress.c: not progress
+
+
+def assert_converged(run):
+    a, b = run.s.a, run.s.b
+    fa, fb = bytearray(a.read_bytes("g_CastleFlags", 0x300)), bytearray(b.read_bytes("g_CastleFlags", 0x300))
+    for i in EXCLUDED_FLAGS:
+        fa[i] = fb[i] = 0
+    diff = [hex(i) for i in range(0x300) if fa[i] != fb[i]]
+    run.expect(not diff, "castle flags identical in both games", differ=diff[:10])
+    run.expect(a.read_bytes("g_CastleMap", 0x800) == b.read_bytes("g_CastleMap", 0x800), "maps identical")
+    ga, gb = a.read("g_Status", "<i", 0x28C), b.read("g_Status", "<i", 0x28C)
+    run.expect(ga == gb, "pooled gold identical", a=ga, b=gb)
+
+
 def heal(g):
     """Harness-only: HP to max, so ten minutes of button-mashing doesn't end in Game Over."""
     g.write("g_Status", g.read("g_Status", "<i", 0x240), "<i", 0x23C)
 
 
 def soak(run, minutes):
-    """Criterion 8: both games, random input, sharing a room some of the time. No crash, and A's
-    game state is identical with and without the link (replayed in game B's process, unlinked).
-    Both games are healed every 10 s, identically in the replay."""
+    """M1 criterion 8, revised for M2: both games, random input, sharing a room some of the time,
+    for `minutes`. No crash, no events lost, and the shared state converges: castle flags (but
+    the excluded ones), map, and pooled gold are identical in both games at the end.
+    (M1 also checked that the link never changes game state. Since M2 it does, on purpose.)"""
     a, b = run.s.a, run.s.b
     frames = int(minutes * 3600)
-    start = a.save_state()
     inputs_a = list(random_inputs(11, frames))
     inputs_b = list(random_inputs(22, frames))
-    hashes, shared = {}, [0]
+    shared = [0]
 
     def each(i, sa, sb):
         if sa["stage"] == sb["stage"] and sa["room"] == sb["room"]:
             shared[0] += 1
         if (i + 1) % 600 == 0:
-            hashes[i + 1] = state_hash(a)
             heal(a), heal(b)
 
     run.s.step(frames, p1=lambda i, sa, sb: (inputs_a[i][0], inputs_b[i][0]), each=each)
-    sa = a.snapshot()
+    run.s.step(30)  # let the last events land
+    sa, sb = a.snapshot(), b.snapshot()
     run.expect(sa["game_state"] == 2 and a.mailbox("heartbeat") > frames, "A still in play", final=sa)
-    run.expect(b.snapshot()["game_state"] == 2, "B still in play", final=b.snapshot())
+    run.expect(sb["game_state"] == 2, "B still in play", final=sb)
     run.expect(shared[0] > frames // 20, "the games shared a room part of the time", frames=shared[0])
+    run.expect(a.mailbox("dropped") == 0 and b.mailbox("dropped") == 0, "no events dropped")
+    assert_converged(run)
 
-    b.unlink()  # replay A's inputs in B's process, alone: no partner ever arrives
-    b.load_state(start)
-    diverged = []
-    for i in range(frames):
-        b.step(1, inputs_a[i][0])
-        if (i + 1) in hashes:
-            replayed = state_hash(b)
-            regions = [r for r in replayed if replayed[r] != hashes[i + 1][r]]
-            if regions and not diverged:
-                diverged.append((i + 1, regions))
-            heal(b)
-    run.expect(not diverged, "A's game state is the same with and without the link",
-               checks=len(hashes), first_divergence=diverged[:1])
+
 
 
 @session_scenario()
@@ -239,3 +245,8 @@ def soak_short(run):
 @session_scenario()
 def soak_10min(run):
     soak(run, 10)
+
+
+@session_scenario()
+def soak_30min(run):
+    soak(run, 30)

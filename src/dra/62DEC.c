@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! PSPO=4,p
 #include "dra.h"
+#ifdef COOP
+#include "../../mods/co-op/module/coop_api.h"
+#endif
 #include "dra_bss.h"
 
 // BSS
@@ -705,7 +708,11 @@ static void func_80103ED4(void) {
         }
         // I believe the rand() call here selects the icon on the save
         // in the save-select screen.
+#ifdef COOP
+        CoopStoreSaveData(g_Pix, D_8006C378, rand() & 0xF); // + posts the save to the co-op link
+#else
         StoreSaveData(g_Pix, D_8006C378, rand() & 0xF);
+#endif
 #ifdef VERSION_PSP
         func_psp_090DFC68();
         if (MemcardWriteFile(D_80097924, 0, saveFile, g_Pix, 1, i, 1) != 0) {

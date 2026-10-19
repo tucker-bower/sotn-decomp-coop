@@ -3,6 +3,8 @@
 #include <game.h>
 #include "coop_api.h"
 #include "link.h"
+#include "arrive.h"
+#include "progress.h"
 #include "puppet.h"
 
 bool DebugUpdate(void); // DRA
@@ -12,6 +14,7 @@ void DrawMapCursor(void);
 static bool UpdateHook(void);
 static void RenderEntitiesHook(void);
 static void DrawMapCursorHook(void);
+static void StoreSaveDataHook(SaveData* save, s32 block, s32 cardIcon);
 
 // Fixed addresses: dra_hooks.ld. One jump per DRA hook.
 __asm__(".section .coop-table, \"ax\"\n"
@@ -19,6 +22,7 @@ __asm__(".section .coop-table, \"ax\"\n"
         "j UpdateHook\nnop\n"
         "j RenderEntitiesHook\nnop\n"
         "j DrawMapCursorHook\nnop\n"
+        "j StoreSaveDataHook\nnop\n"
         ".set pop\n.previous");
 
 CoopLink g_CoopLink = {COOP_MAGIC, COOP_LINK_VERSION};
@@ -30,6 +34,7 @@ static void CapturePresence(CoopPresence* p) {
     p->flags = 0;
     p->frame = g_Timer;
     if (g_GameState != Game_Play) {
+        ArrivePresence(p);
         return;
     }
     p->flags = PRESENCE_IN_PLAY;
@@ -50,15 +55,28 @@ static void CapturePresence(CoopPresence* p) {
     if (pl->animSet && (pl->animCurFrame & 0x7FFF)) {
         p->flags |= PRESENCE_SPRITE;
     }
+    ArrivePresence(p);
 }
 
 // Main loop, before UpdateGame. M2 applies the host's inbox here.
+//
+// The main loop runs UpdateGame only if DebugUpdate() returns nonzero, but in the US build
+// DebugUpdate is empty (`jr ra`): it never sets a return value, and retail just happens to
+// leave a nonzero v0. Returning DebugUpdate()'s "result" would return whatever our own code
+// left in v0, and freeze the game whenever that's 0. So: call it, and always run the game.
 static bool __attribute__((used)) UpdateHook(void) {
     g_CoopLink.heartbeat++;
     if (g_CoopLink.partnerAge < 0xFFFF) {
         g_CoopLink.partnerAge++;
     }
-    return DebugUpdate();
+    ProgressUpdate();
+    DebugUpdate();
+    return ArriveFrame();
+}
+
+// The save room's StoreSaveData (src/dra/62DEC.c): the game saved, so post the save.
+static void __attribute__((used)) StoreSaveDataHook(SaveData* save, s32 block, s32 cardIcon) {
+    CoopSaveRoomStore(save, block, cardIcon);
 }
 
 // After RenderEntities, the frame's game state is final: publish it, and draw the partner

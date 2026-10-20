@@ -1,6 +1,6 @@
 # M6 design: A playable build
 
-**Status:** approved 2026-10-19 (v2, with Tucker's changes: no timed autosaves, storage made visible; the patch-file patcher approved; nothing moves to M7).
+**Status:** built 2026-10-19 (PR open); awaiting playtest 3. Approved 2026-10-19 (v2, with Tucker's changes: no timed autosaves, storage made visible; the patch-file patcher approved; nothing moves to M7).
 **Context:**
 - D8: ship as a patched disc image.
 - D9: build it from the user's own disc.
@@ -80,8 +80,8 @@ The file is recognized by hash, and the launcher says which BIOS it found. If an
   - **The list:** the castle entrance, the hall, the Alchemy Lab and its elevator shaft, Marble Gallery, Outer Wall, next to the Doppleganger, next to Maria, a save room, plus each later stage as the route grows. Making them takes about a minute, with a progress bar.
 - **During a playthrough, the launcher keeps every savestate it makes, forever, but it makes few:**
   - **No timed autosaves** (Tucker: that wastes space).
-  - **Only on moments worth going back to:** the first time either player enters a stage, a boss fight starting, a joint save, and quitting. Deaths are covered by the boss and save states.
-  - **Storage:** compressed (most of a state is the empty 8 MB expansion RAM). That's a few MB per moment for both games, roughly 100–200 MB for a whole playthrough.
+  - **Only on moments worth going back to:** the first time either player enters a stage, a boss fight starting, and quitting. A joint save is a restore point already (the memory cards); deaths are covered by the boss states.
+  - **Storage:** zstd-compressed, with B's state compressed against A's. That's about 2 MB per moment for both games (measured: 1.4 MB for A, under 0.9 MB for B), roughly 200 MB for a whole playthrough.
   - **Naming:** each file is named `<playthrough>/<time>_<event>_<A|B>.state.zst`, and every write goes to a new name, so nothing is ever overwritten or deleted by the launcher.
 - **The space used is always clear:**
   - The home screen's Savestates entry shows the total ("Savestates: 142 MB").
@@ -126,7 +126,7 @@ F9, or "Report a problem" on the pause screen, writes one zip to `reports/<time>
    - The original image is untouched.
 3. **New game:** New game → the prologue → Alucard → the first save room. Quit, then Continue: both games resume in the save room. On OpenBIOS.
 4. **Savestates are never deleted, and their space is visible:**
-   - A session writes event savestates (a new stage, a boss, a joint save, quitting) for both games, and none on a timer.
+   - A session writes event savestates (a new stage, a boss, quitting) for both games, and none on a timer.
    - The home screen and the Savestates screen show the right total, and deleting a playthrough's savestates asks first.
    - No file in the archive is ever overwritten or removed (a harness check over a session).
    - Any of them loads from the browser.
@@ -142,5 +142,20 @@ F9, or "Report a problem" on the pause screen, writes one zip to `reports/<time>
   - OpenBIOS is MIT: fine to bundle with its notice.
   - Our launcher stays AGPL like the decomp.
 - **OpenBIOS gaps** may exist outside what the suite covers. The real-BIOS option is the fallback, and playtest 3 uses OpenBIOS on purpose.
-- **Archive growth:** about 100–200 MB per playthrough, always shown, and deleted only by the player.
+- **Archive growth:** about 200 MB per playthrough, always shown, and deleted only by the player.
 - **Antivirus false positives** on PyInstaller executables; signing comes later.
+
+## Progress (2026-10-19, in progress on `coop-m6-playable`)
+| # | Criterion | State |
+|---|---|---|
+| 1 | Installer → home screen in under 5 min, no BIOS needed | **Built:** `scripts/build_release.sh` → `SOTN-Coop-setup-<v>.exe`, 25 MB. It installs per user with no admin rights, and holds embedded Python, our source, SwanStation, OpenBIOS and the patch, but no game data (the script checks). Installed silently to a test folder, the launcher smoke test passes there. **Waiting on:** Tucker's install from scratch (playtest 3). |
+| 2 | The patcher refuses wrong discs; output = `build_disc.sh`'s; original untouched | **Done:** `patcher/test_patcher.py`. The patch is 222 KB and applies in under a second. The CD-audio track is kept: the patcher writes a two-track disc. |
+| 3 | New game → … → save room → Continue resumes both | **Done:** `launcher/smoke.py`, the Continue check. It found a bug: a partner standing in a save room never saved. Fixed; test `save_room_both_inside`. |
+| 4 | Savestates never deleted, and their space visible | **Done:** `launcher/smoke.py`. Moments are a new area, a boss and quitting; 2.1 MB each (B compressed against A). Nothing is overwritten. The home screen and Savestates screen show sizes, and delete asks first. |
+| 5 | The F9 report is complete, and `replay.py` replays it | **Done:** `launcher/smoke.py`, plus `replay.py` on a smoke-test report. |
+| 6 | Debug starts load | **Done:** 9 starts, made in about 26 s on the player's PC. The smoke test plays from one, and the Continue check from another. |
+| 7 | Suite on the patcher's disc, on OpenBIOS and a real BIOS | **Done:** on the patcher's disc, OpenBIOS 55/55 and the real BIOS 56/57; the one failure was the save-room fix, not yet built at the time, which now passes on both. The full suite on the final build: 57/57. |
+| 8 | `docs/link-protocol.md`, plus a test from the spec alone | **Done:** `link_spec_conformance`. It also added a version handshake (`HELO`) for online play. |
+| 9 | Manual: Tucker's playtest 3 | **To come.** |
+
+**Still to do:** Tucker's playtest 3 (the installer is in `Emulators\SOTN-Coop-release\`).

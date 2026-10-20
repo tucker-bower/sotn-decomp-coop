@@ -6,13 +6,17 @@
 #   scripts/install_launcher.sh [path/to/swanstation_libretro.dll]
 set -euo pipefail
 MOD="$(cd "$(dirname "$0")/.." && pwd)"
-ROOT="$(cd "$MOD/../.." && pwd)"
+if [ -f "$MOD/.env/src/sotn-decomp/sotn.sh" ]; then
+    ROOT="$MOD/.env/src/sotn-decomp"
+else
+    ROOT="$(cd "$MOD/../.." && pwd)"
+fi
 PY="$ROOT/.venv/bin/python"
 WIN_EMU="$("$PY" -c "import sys; sys.path.insert(0, '$MOD/harness'); from coop_env import ENV, path; print(path(ENV['paths']['win_emulators']))")"
 DEST="$WIN_EMU/SOTN-Coop"
 APP="$DEST/app"
 DLL="${1:-$DEST/app/bin/swanstation_libretro.dll}"
-WINPY="$(cmd.exe /c "where python" 2>/dev/null | tr -d '\r' | grep -v WindowsApps | head -1)"
+WINPY="$(cd /mnt/c && cmd.exe /c "where python" </dev/null 2>/dev/null | tr -d '\r' | grep -v WindowsApps | head -1)"
 [ -n "$WINPY" ] || { echo "Windows Python not found (install python.org's Python 3.12+)"; exit 1; }
 WINPY="$(wslpath -u "$WINPY")"
 
@@ -48,13 +52,13 @@ W() { wslpath -w "$1"; }
 echo "== Python environment"
 if [ ! -f "$DEST/venv/Scripts/python.exe" ]; then
     "$WINPY" -m venv "$(W "$DEST/venv")"
+    "$DEST/venv/Scripts/python.exe" -m pip install -q --upgrade pip >/dev/null
+    "$DEST/venv/Scripts/python.exe" -m pip install -q "libretro.py==0.12.0" pygame-ce pillow
 fi
-"$DEST/venv/Scripts/python.exe" -m pip install -q --upgrade pip >/dev/null
-"$DEST/venv/Scripts/python.exe" -m pip install -q "libretro.py==0.12.0" pygame-ce pillow
 INDEX="$APP/.env/savestates/sotn_coop.us/index.json"
 if [ ! -f "$INDEX" ] || [ "$APP/.env/out/disc/sotn_coop.us.bin" -nt "$INDEX" ]; then
     echo "== savestates (Windows core; about 30 s)"
-    "$DEST/venv/Scripts/python.exe" "$(W "$APP/harness/savestates.py")" "$(W "$APP/.env/out/disc/sotn_coop.us.cue")" | grep -v '^\[' | tail -4
+    (cd "$DEST" && "$DEST/venv/Scripts/python.exe" "$(W "$APP/harness/savestates.py")" "$(W "$APP/.env/out/disc/sotn_coop.us.cue")" </dev/null | grep -v '^\[' | tail -4)
 fi
 
 echo "== presets"

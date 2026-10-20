@@ -222,3 +222,36 @@ Channels: #runbook (rules and links), #general, #ps1-sotn, #psp-sotn, #saturn-so
 - **DuckStation** has no scripting or headless mode. It's portable when `portable.txt` sits next to the exe, and `settings.ini` takes the same option names as SwanStation's (`Console/Enable8MBRAM`, `BIOS/PathNTSCU`).
 - **SwanStation** detects self-modifying code by itself. PCSX-Redux's dynarec doesn't: code written by the CPU only runs after `FlushCache()`. That's real-hardware behavior too.
 - Libretro: a core can only be loaded once per process, so the lockstep check uses two processes.
+
+## Online PC co-op networking (checked 2026-10-19, for M7)
+- **UDP MTU and snapshot fragmentation:**
+  - Standard internet path MTU is 1200–1400 bytes once IP/UDP headers, PPPoE, or VPN overhead are subtracted.
+  - Raw `SNAP` datagrams in M4–M6 are ~8 KB (and up to ~16 KB on frames with a full foreground tilemap or stage VRAM upload). On localhost (`127.0.0.1`), the OS loopback MTU is 65,536 bytes so a single `sendto()` succeeds without fragmentation. Over the internet, an 8 KB UDP datagram is fragmented at the IP layer into 6–7 packets; many consumer routers and ISPs drop fragmented UDP outright, and if any single fragment is lost, the entire datagram is discarded by the OS.
+  - **Standard practice in real-time game netcode (Quake 3, Source, SM64-coop-dx):**
+    1. **Compress snapshots before sending:** `zlib` (in Python stdlib) or `zstd` (already used by `launcher/archive.py`) compresses sparse 8 KB entity/primitive/BSS snapshots down to ~1.0–1.8 KB in ~0.1 ms, and XOR-ing against the previous snapshot (`base_seq`) shrinks steady-state frames even further.
+    2. **Application-layer chunking below MTU:** split compressed snapshots larger than `MAX_DGRAM_PAYLOAD = 1200` bytes into numbered chunks (`SNAP` header: `snap_seq`, `chunk_idx`, `chunk_cnt`), reassembling when all chunks of the newest `snap_seq` arrive and discarding older partial snapshots.
+- **Zero-infrastructure connect codes & NAT traversal:**
+  - **Public STUN (RFC 5389):** A 20-byte Binding Request to public STUN servers (`stun.l.google.com:19302`, `stun.cloudflare.com:3478`, `stun.nextcloud.com:443`) returns the peer's reflexive public `(ip, port)` with zero infrastructure to run.
+  - **UPnP IGD / NAT-PMP:** Attempting a local router port mapping first makes the host reachable on full-cone mappings without needing simultaneous punch timing.
+  - **Stateless Endpoint Codes:** An IPv4 address (4 bytes) + UDP port (2 bytes) = 6 bytes = 10 base32 characters (e.g. `ABCD-EFGH-JK`). Exchanging codes (or adding a short room code resolved over public WebSocket signaling relays, with automatic fallback to the stateless endpoint code and raw `ip:port`) gives a Slippi-style connect flow with zero server maintenance.
+
+## AYN Thor dual-screen & widescreen (checked 2026-10-19, for M9–M10)
+- **Hardware specs:** Android 13 clamshell handheld (Snapdragon 8 Gen 2 / Adreno 740 on Base/Pro/Max; Snapdragon 865 on Lite).
+  - **Top screen:** 6.0" AMOLED, 1920×1080 (16:9), 120Hz.
+  - **Bottom screen:** 3.92" AMOLED, 1080×1240, 60Hz.
+- **Dual-screen rendering on Android:** Android's `DisplayManager` + `Presentation` (or secondary `Activity` with `ActivityOptions.setLaunchDisplayId`) lets a single process open a hardware-accelerated surface on the bottom display while the main game runs on the top display.
+- **Partner view on the bottom screen:** Can be driven either by running a second lightweight spectator/mirror instance locally (fed by the same link protocol `PRES` + `SNAP` + `EVTS` stream) or by receiving low-overhead compressed frame/tile state from the partner's host.
+- **True widescreen (expanded FOV, not stretched) on the top 16:9 screen:**
+  - Retail PS1 SOTN sets a 256×240 display/draw environment (`DISPENV`/`DRAWENV`), clamps camera horizontal scrolling to 256 px per room unit, and spawns layout entities in a `[-64, +320]` px window around the camera left edge (`g_api.o.UpdateRoomPosition`).
+  - Expanding FOV to 16:9 (~426×240, or 384×216 / 320×240 + SwanStation widescreen viewport) requires widening the GPU clip/draw width, adjusting room scroll clamping and HUD centering in `DRA`, and widening the stage layout spawner window so enemies and backgrounds appear at the wider screen edges rather than popping in at x=256.
+
+## Dracula X Chronicles USA (`sotn.pspus.iso`, `ULUS-10277`) asset map for M8 (checked 2026-10-19)
+- **Why `assets.pspeu.yaml` failed on `sotn.pspus.iso` (resolving D15):**
+  - `PSP_GAME/USRDIR/res/ps/PSPBIN/maria.bin` in `sotn.pspus.iso` (`ULUS-10277`) is `0x33F80` bytes (`MWo3` header: `base=0x09228A00, text=0x1220C, data=0x21D34, bss=0x1D00`), whereas `pspeu` (`ULES-00841`) is `0x3F700` bytes.
+  - Because `pspus` is English-only, it omits the 5 localized European HUD textures (`font_eu`, `hud_sp`, `hud_it`, `hud_ge`, `hud_fr`) between `pl_main.data` and `subweapons`.
+  - Every single Maria asset from `subweapons` (`0x1EFE0` in `pspeu`) through `crash_cardinal_pal` (`0x3F338` in `pspeu`) is present in `sotn.pspus.iso`'s `maria.bin` at an **exact constant `-0xB780` byte offset** (`0x13860` through `0x33BB8`), and `.rodata` (`0x280` bytes) follows immediately at `0x33D00..0x33F80`.
+- **Maria SFX & Voice in `sotn.pspus.iso`:**
+  - Both `PSP_GAME/USRDIR/res/ps/snd_e/SE/sd_mar2.spk` (74,560 bytes, English voice/SFX) and `PSP_GAME/USRDIR/res/ps/sound/SE/sd_mar2.spk` (74,560 bytes, Japanese voice/SFX) are present on `sotn.pspus.iso` and build directly into `SD_MAR.VH` + `SD_MAR.VB` via `tools/maria-sfx`.
+- **DXC 2007 English dialogue & voice acting in `sotn.pspus.iso`:**
+  - Cutscene scripts (`cutscene_script_en`) live in `PSP_GAME/USRDIR/res/ps/PSPBIN/{st0,cen,dai,dre,lib,no3,no4,sel}.bin`.
+  - Voice streams (`.at3`) live in `PSP_GAME/USRDIR/res/ps/snd_e/XA/*.at3` (English) and `sound/XA/*.at3` (Japanese).

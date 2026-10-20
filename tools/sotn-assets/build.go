@@ -55,7 +55,7 @@ func buildVersions(versions []string) error {
 func ninjaStampValue(versionStr string) string {
 	stamp := versionStr
 	// These env vars change gen.py output, so include them in the stamp
-	for _, key := range []string{"SKIP_CHECK", "SOTN_PROGRESS_REPORT", "FORCE_SYMBOLS"} {
+	for _, key := range []string{"SKIP_CHECK", "SOTN_PROGRESS_REPORT", "FORCE_SYMBOLS", "COOP"} {
 		if _, ok := os.LookupEnv(key); ok {
 			stamp += "," + key
 		}

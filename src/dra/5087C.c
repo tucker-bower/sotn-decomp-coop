@@ -4,6 +4,9 @@
 #include "dra_bss.h"
 #include "menu.h"
 #include "servant.h" // for InitializeMode enum
+#ifdef COOP
+#include "../../mods/co-op/module/coop_api.h"
+#endif
 
 // fake struct for D_801375BC
 typedef struct {
@@ -1696,7 +1699,11 @@ void RunMainEngine(void) {
         break;
     case Engine_Map:
         if (g_canRevealMap) {
+#ifdef COOP
+            CoopDrawMapCursor(); // DrawMapCursor(), then the partner's
+#else
             DrawMapCursor();
+#endif
         }
         if (g_pads[0].tapped & (PAD_START | PAD_SELECT)) {
             SetFadeMode(FADE_HIDE_MAP);
